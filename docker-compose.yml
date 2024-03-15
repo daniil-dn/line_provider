@@ -1,0 +1,113 @@
+version: '3.5'
+
+networks:
+  bet-network:
+    external: true
+    internal: false
+
+services:
+
+  db:
+    restart: on-failure
+    container_name: postgresql_db_line_provider
+    image: postgres:13
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+    # env_file:
+    #   - .env
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=anihortes
+      - POSTGRES_SERVER=line_provider_db
+      - POSTGRES_DB=postgres
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    networks:
+      - bet-network
+      - default
+    dns:
+      - 0.0.0.0
+  redis:
+    restart: on-failure
+    container_name: rq_redis_line_provider
+    image: bitnami/redis:6.2.1
+    environment:
+      # ALLOW_EMPTY_PASSWORD is recommended only for development.
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "6379:6379"
+    networks:
+      - bet-network
+      - default
+
+
+  app_line_provider:
+    restart: on-failure
+    build: .
+    image: line_provider
+    ports:
+      - "9091:9090"
+    volumes:
+      - .:/app
+    depends_on:
+      - worker_line_provider
+    command: uvicorn app.start_line_provider:app --host 0.0.0.0 --port 9090 --reload
+    networks:
+      - bet-network
+      - default
+
+    environment:
+      - DEBUG=True
+      - PROJECT_NAME=BOT_API
+      - RABBITMQ_HOST=rabbitmq_bet
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_LOGIN=user
+      - RABBITMQ_PASSWORD=user
+      - SERVER_NAME=Line_Provider_API
+      - SERVER_HOST=http://localhost
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=anihortes
+      - POSTGRES_SERVER=postgresql_db_line_provider
+      - POSTGRES_DB=postgres
+      - LOGGER_ROTATION=10 MB
+      - LOGGER_COMPRESSION=zip
+      - LOGGER_DEBUG=True
+      - REDIS_PORT=6379
+      - REDIS_HOST=rq_redis_line_provider
+    tty: true
+    stdin_open: true
+    dns:
+      - 0.0.0.0
+
+  worker_line_provider:
+    restart: on-failure
+    build: .
+    depends_on:
+      - redis
+      - db
+    command: python3.10 app/start_line_provider_worker_async.py
+    networks:
+      - bet-network
+      - default
+    environment:
+      - DEBUG=True
+      - PROJECT_NAME=BOT_API
+      - RABBITMQ_HOST=rabbitmq_bet
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_LOGIN=user
+      - RABBITMQ_PASSWORD=user
+      - SERVER_NAME=Line_Provider_API
+      - SERVER_HOST=http://localhost
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=anihortes
+      - POSTGRES_SERVER=postgresql_db_line_provider
+      - POSTGRES_DB=postgres
+      - LOGGER_ROTATION=10 MB
+      - LOGGER_COMPRESSION=zip
+      - LOGGER_DEBUG=True
+      - REDIS_PORT=6379
+      - REDIS_HOST=rq_redis_line_provider
+
+volumes:
+  postgres_data:
